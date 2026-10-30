@@ -8,9 +8,16 @@ interface FieldsProps {
   form: ProfileForm;
   errors: Partial<Record<RequiredField, string>>;
   onChange: (key: keyof ProfileForm, value: string) => void;
+  nikReadOnly?: boolean;
 }
 
-export function DataFields({ prefix, form, errors, onChange }: FieldsProps) {
+export function DataFields({
+  prefix,
+  form,
+  errors,
+  onChange,
+  nikReadOnly = true,
+}: FieldsProps) {
   return (
     <>
       <div className="row">
@@ -66,7 +73,12 @@ export function DataFields({ prefix, form, errors, onChange }: FieldsProps) {
             <option value="perempuan">Perempuan</option>
           </select>
         </Field>
-        <Field id={`${prefix}nik`} label="NIK" error={errors.nik}>
+        <Field
+          id={`${prefix}nik`}
+          label="NIK"
+          error={errors.nik}
+          hint={nikReadOnly ? "NIK tidak dapat diubah setelah akun dibuat." : undefined}
+        >
           <input
             id={`${prefix}nik`}
             inputMode="numeric"
@@ -74,6 +86,7 @@ export function DataFields({ prefix, form, errors, onChange }: FieldsProps) {
             autoComplete="off"
             placeholder="Minimal 6 digit"
             value={form.nik}
+            readOnly={nikReadOnly}
             onChange={(event) => onChange("nik", event.target.value.replace(/\D/g, ""))}
             aria-invalid={errors.nik ? "true" : undefined}
           />
