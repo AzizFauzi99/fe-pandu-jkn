@@ -87,6 +87,22 @@ const ICONS: Record<string, IconDef> = {
   },
   arrowLeft: { content: <path d="M13 8H3M7 4L3 8l4 4" /> },
   close: { content: <path d="M4 4l8 8M12 4l-8 8" /> },
+  pencil: {
+    content: (
+      <>
+        <path d="M10.5 2.5l3 3-7.5 7.5-3.5.5.5-3.5z" />
+        <path d="M9 4l3 3" />
+      </>
+    ),
+  },
+  trash: {
+    content: (
+      <>
+        <path d="M2.5 4h11M6 4V2.5h4V4M4 4l.6 9.5h6.8L12 4" />
+        <path d="M6.5 6.5v4.5M9.5 6.5v4.5" />
+      </>
+    ),
+  },
 };
 
 export function Icon({ name, className }: { name: keyof typeof ICONS | string; className?: string }) {

@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useRef,
   useState,
@@ -8,28 +7,15 @@ import {
   type RefObject,
 } from "react";
 import Markdown from "react-markdown";
-import { api, ApiError, streamChat } from "../api/client";
-import type { ChatImage, Session } from "../api/types";
+import type { Session } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { useChat, type Photo } from "../chat/ChatContext";
+import { DeleteSessionModal, RenameSessionModal } from "../components/SessionDialogs";
 import { SummaryModal } from "../components/SummaryModal";
 import { firstName } from "../lib/profile";
 import { Icon } from "../ui/Icons";
 import { Shell } from "../ui/Shell";
 import { useToast } from "../ui/Toast";
-
-interface Photo {
-  file: File;
-  url: string;
-}
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  imageUrl?: string;
-  pending?: boolean;
-  error?: boolean;
-}
 
 interface Chip {
   title: string;
@@ -73,25 +59,6 @@ const CHIPS: Chip[] = [
 const ALLOWED_IMAGES = ["image/jpeg", "image/png", "image/webp"];
 const NOTE =
   "Agen memberi informasi umum, bukan diagnosis. Untuk kondisi darurat, hubungi 119 atau segera ke IGD.";
-
-let counter = 0;
-function uid(prefix: string): string {
-  counter += 1;
-  return `${prefix}-${Date.now()}-${counter}`;
-}
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result ?? "");
-      const comma = result.indexOf(",");
-      resolve(comma >= 0 ? result.slice(comma + 1) : result);
-    };
-    reader.onerror = () => reject(reader.error ?? new Error("Gagal membaca file"));
-    reader.readAsDataURL(file);
-  });
-}
 
 interface ComposerProps {
   value: string;
@@ -197,211 +164,50 @@ function Composer({
 export function ChatPage() {
   const { profile } = useAuth();
   const { showToast } = useToast();
+  const {
+    sessions,
+    currentId,
+    messages,
+    input,
+    setInput,
+    photo,
+    pickPhoto,
+    sending,
+    loadingThread,
+    newChat,
+    openSession,
+    sendMessage,
+    toggleStar,
+    updateSession,
+    removeSession,
+  } = useChat();
 
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [currentId, setCurrentId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [photo, setPhoto] = useState<Photo | null>(null);
-  const [sending, setSending] = useState(false);
-  const [loadingThread, setLoadingThread] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  const [renaming, setRenaming] = useState<Session | null>(null);
+  const [deleting, setDeleting] = useState<Session | null>(null);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const urlsRef = useRef<Set<string>>(new Set());
-  const threadRequest = useRef(0);
-
-  const refreshSessions = useCallback(async () => {
-    try {
-      setSessions(await api.listSessions());
-    } catch {
-      /* daftar percakapan bisa dimuat ulang nanti */
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshSessions();
-  }, [refreshSessions]);
 
   useEffect(() => {
     const stage = stageRef.current;
     if (stage) stage.scrollTop = stage.scrollHeight;
   }, [messages, loadingThread]);
 
-  useEffect(
-    () => () => {
-      abortRef.current?.abort();
-      urlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-      urlsRef.current.clear();
-    },
-    [],
-  );
+  useEffect(() => {
+    if (!loadingThread) textareaRef.current?.focus();
+  }, [loadingThread, currentId]);
 
-  function makeUrl(file: File): string {
-    const url = URL.createObjectURL(file);
-    urlsRef.current.add(url);
-    return url;
-  }
-
-  function releaseUrl(url: string) {
-    URL.revokeObjectURL(url);
-    urlsRef.current.delete(url);
-  }
-
-  function pickPhoto(file: File | null) {
-    if (photo) releaseUrl(photo.url);
-    setPhoto(file ? { file, url: makeUrl(file) } : null);
-  }
-
-  function resetImages() {
-    setPhoto(null);
-    urlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    urlsRef.current.clear();
-  }
-
-  function newChat() {
-    if (sending) return;
-    threadRequest.current += 1;
-    setCurrentId(null);
-    setMessages([]);
-    setInput("");
-    resetImages();
+  function handleNewChat() {
+    newChat();
     setSummaryOpen(false);
     textareaRef.current?.focus();
   }
 
-  async function openSession(session: Session) {
-    if (sending || session.id === currentId) return;
-    const request = ++threadRequest.current;
-    setCurrentId(session.id);
-    setMessages([]);
-    setInput("");
-    resetImages();
+  function handleOpenSession(session: Session) {
     setSummaryOpen(false);
-    setLoadingThread(true);
-    try {
-      const history = await api.getSessionMessages(session.id);
-      if (threadRequest.current !== request) return;
-      setMessages(
-        history.map((message) => ({
-          id: uid("h"),
-          role: message.role,
-          content: message.content,
-        })),
-      );
-    } catch (err) {
-      if (threadRequest.current === request) {
-        showToast(
-          err instanceof ApiError ? err.message : "Riwayat percakapan belum bisa dimuat.",
-        );
-      }
-    } finally {
-      if (threadRequest.current === request) {
-        setLoadingThread(false);
-        textareaRef.current?.focus();
-      }
-    }
-  }
-
-  async function sendMessage(override?: { text?: string; includePhoto?: boolean }) {
-    const text = (override?.text ?? input).trim();
-    const file = override?.includePhoto === false ? null : photo?.file ?? null;
-    if ((!text && !file) || sending) return;
-
-    const imageUrl = photo?.url;
-    const userId = uid("u");
-    const assistantId = uid("a");
-
-    setMessages((current) => [
-      ...current,
-      { id: userId, role: "user", content: text, imageUrl },
-      { id: assistantId, role: "assistant", content: "", pending: true },
-    ]);
-    setInput("");
-    setPhoto(null);
-    setSending(true);
-
-    let sessionId = currentId;
-    let created = false;
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    try {
-      let images: ChatImage[] = [];
-      if (file) {
-        images = [{ mime_type: file.type, data: await fileToBase64(file) }];
-      }
-
-      await streamChat(
-        { user_input: text, session_id: sessionId, images },
-        {
-          onSession: (id) => {
-            if (!sessionId) created = true;
-            sessionId = id;
-            setCurrentId(id);
-          },
-          onToken: (token) => {
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantId
-                  ? { ...message, content: message.content + token, pending: false }
-                  : message,
-              ),
-            );
-          },
-          onError: (message) => {
-            setMessages((current) =>
-              current.map((item) =>
-                item.id === assistantId
-                  ? {
-                      ...item,
-                      content: `Jawaban belum bisa diambil: ${message}`,
-                      pending: false,
-                      error: true,
-                    }
-                  : item,
-              ),
-            );
-          },
-        },
-        controller.signal,
-      );
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") {
-        const message =
-          err instanceof ApiError
-            ? err.message
-            : "Jawaban belum bisa diambil. Periksa koneksi lalu kirim ulang pesan Anda.";
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === assistantId
-              ? { ...item, content: message, pending: false, error: true }
-              : item,
-          ),
-        );
-      }
-    } finally {
-      abortRef.current = null;
-      setSending(false);
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === assistantId && item.pending ? { ...item, pending: false } : item,
-        ),
-      );
-
-      if (created && sessionId) {
-        const title = (text || "Analisis foto makanan").slice(0, 40);
-        try {
-          await api.renameSession(sessionId, title);
-        } catch {
-          /* judul bisa diperbarui nanti */
-        }
-      }
-      if (sessionId) void refreshSessions();
-    }
+    void openSession(session);
   }
 
   function handleChip(chip: Chip) {
@@ -420,21 +226,33 @@ export function ChatPage() {
 
   const currentSession = sessions.find((session) => session.id === currentId) ?? null;
 
-  async function toggleStar(session: Session) {
-    const next = !session.starred;
-    setSessions((current) =>
-      current.map((item) => (item.id === session.id ? { ...item, starred: next } : item)),
-    );
-    try {
-      await api.starSession(session.id, next);
-    } catch {
-      setSessions((current) =>
-        current.map((item) =>
-          item.id === session.id ? { ...item, starred: session.starred } : item,
-        ),
-      );
-      showToast("Bintang belum bisa diubah. Coba lagi.");
+  function askRename(session: Session) {
+    if (sending) {
+      showToast("Tunggu hingga jawaban selesai sebelum mengubah judul.");
+      return;
     }
+    setRenaming(session);
+  }
+
+  function askDelete(session: Session) {
+    if (sending) {
+      showToast("Tunggu hingga jawaban selesai sebelum menghapus percakapan.");
+      return;
+    }
+    setDeleting(session);
+  }
+
+  function handleRenamed(updated: Session) {
+    updateSession(updated);
+    setRenaming(null);
+    showToast("Judul percakapan diperbarui.");
+  }
+
+  function handleDeleted(sessionId: string) {
+    removeSession(sessionId);
+    setDeleting(null);
+    if (sessionId === currentId) setSummaryOpen(false);
+    showToast("Percakapan dihapus.");
   }
 
   const groups: Array<[string, Session[]]> = [
@@ -476,7 +294,7 @@ export function ChatPage() {
       column
       sidebarTop={
         <div className="newwrap">
-          <button className="newbtn" id="newChat" type="button" onClick={newChat}>
+          <button className="newbtn" id="newChat" type="button" onClick={handleNewChat}>
             <Icon name="plus" />
             Percakapan baru
           </button>
@@ -497,19 +315,39 @@ export function ChatPage() {
                         type="button"
                         className={`item${currentId === session.id ? " on" : ""}`}
                         title={session.title}
-                        onClick={() => void openSession(session)}
+                        onClick={() => handleOpenSession(session)}
                       >
                         {session.title}
                       </button>
-                      <button
-                        type="button"
-                        className={`starbtn${session.starred ? " on" : ""}`}
-                        aria-pressed={session.starred}
-                        aria-label={`${session.starred ? "Hapus bintang" : "Beri bintang"}: ${session.title}`}
-                        onClick={() => void toggleStar(session)}
-                      >
-                        <Icon name="star" />
-                      </button>
+                      <div className={`convActions${session.starred ? " starred" : ""}`}>
+                        <button
+                          type="button"
+                          className="convbtn danger"
+                          title="Hapus percakapan"
+                          aria-label={`Hapus percakapan: ${session.title}`}
+                          onClick={() => askDelete(session)}
+                        >
+                          <Icon name="trash" />
+                        </button>
+                        <button
+                          type="button"
+                          className="convbtn"
+                          title="Ubah judul"
+                          aria-label={`Ubah judul: ${session.title}`}
+                          onClick={() => askRename(session)}
+                        >
+                          <Icon name="pencil" />
+                        </button>
+                        <button
+                          type="button"
+                          className={`convbtn starbtn${session.starred ? " on" : ""}`}
+                          aria-pressed={session.starred}
+                          aria-label={`${session.starred ? "Hapus bintang" : "Beri bintang"}: ${session.title}`}
+                          onClick={() => void toggleStar(session)}
+                        >
+                          <Icon name="star" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -601,6 +439,22 @@ export function ChatPage() {
 
       {summaryOpen && currentId && (
         <SummaryModal sessionId={currentId} onClose={() => setSummaryOpen(false)} />
+      )}
+
+      {renaming && (
+        <RenameSessionModal
+          session={renaming}
+          onClose={() => setRenaming(null)}
+          onSaved={handleRenamed}
+        />
+      )}
+
+      {deleting && (
+        <DeleteSessionModal
+          session={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={handleDeleted}
+        />
       )}
     </Shell>
   );

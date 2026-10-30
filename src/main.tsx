@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./auth/AuthContext";
+import { ChatProvider } from "./chat/ChatContext";
 import { ToastProvider } from "./ui/Toast";
 import "./styles.css";
 
@@ -14,7 +15,9 @@ createRoot(container).render(
     <HashRouter>
       <ToastProvider>
         <AuthProvider>
-          <App />
+          <ChatProvider>
+            <App />
+          </ChatProvider>
         </AuthProvider>
       </ToastProvider>
     </HashRouter>

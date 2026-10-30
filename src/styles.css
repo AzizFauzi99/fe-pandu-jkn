@@ -216,6 +216,12 @@ input[readonly] {
 .btn.ghost:hover {
   background: #303030;
 }
+.btn.danger {
+  background: #dc2626;
+}
+.btn.danger:hover {
+  background: #ef4444;
+}
 .btn:disabled {
   opacity: 0.6;
   cursor: default;
@@ -692,37 +698,44 @@ input[readonly] {
   background: #262626;
 }
 .conv .item {
-  padding-right: 42px;
+  padding-right: 96px;
 }
 .conv .item.on {
   background: #2a2a2a;
   font-weight: 600;
 }
-.starbtn {
+.convActions {
   position: absolute;
-  right: 8px;
+  right: 6px;
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+.conv:hover .convActions,
+.conv:focus-within .convActions,
+.convActions.starred {
+  opacity: 1;
+}
+.convbtn {
   width: 26px;
   height: 26px;
   display: grid;
   place-items: center;
   border-radius: 6px;
   color: var(--muted);
-  opacity: 0;
 }
-.conv:hover .starbtn,
-.starbtn:focus-visible,
-.starbtn.on:hover {
-  opacity: 1;
-}
-.starbtn:hover {
+.convbtn:hover {
   background: #333;
   color: var(--text);
 }
+.convbtn.danger:hover {
+  background: #3a1f1f;
+  color: #f87171;
+}
 .starbtn.on {
   color: var(--accent);
-  opacity: 1;
 }
 .starbtn.on svg,
 .starTop.on svg {
@@ -736,7 +749,7 @@ input[readonly] {
   color: var(--accent);
 }
 @media (hover: none) {
-  .starbtn {
+  .convActions {
     opacity: 1;
   }
 }
